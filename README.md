@@ -1,4 +1,51 @@
+## Overview
 
+Koudelka is a terminal-based document search application that ingests content from curated RSS feeds,
+indexes documents using an inverted index, and ranks results using BM25.
+
+The project focuses on search relevance, performance tradeoffs, and systems-level design decisions
+rather than web crawling or UI complexity. A Python Textual-based TUI acts as the primary client,
+while core indexing and retrieval logic is implemented with performance in mind.
+
+## Architecture
+
+Koudelka is structured around three core components:
+
+- **Ingestion**
+  - Fetches documents from hand-picked RSS feeds
+  - Normalizes and stores document metadata and content in SQLite
+
+- **Indexing & Search**
+  - Maintains an inverted index with `documents` and `postings` tables
+  - Stores the term lexicon in memory to reduce disk I/O during queries
+  - Uses BM25 for ranking search results
+
+- **Client (TUI)**
+  - Python Textual-based terminal UI
+  - Accepts user queries and displays ranked results
+  - Designed to emphasize responsiveness and low-latency feedback
+
+## Design Decisions & Tradeoffs
+
+### SQLite for Storage
+SQLite was chosen for simplicity, portability, and ease of development.
+For a single-node system with moderate document volume, SQLite provides sufficient performance
+while keeping operational complexity low.
+
+### In-Memory Lexicon
+The term dictionary (lexicon) is stored in memory to avoid disk access on every query.
+This significantly reduces query latency at the cost of a slightly longer startup time,
+as the lexicon is rebuilt from persisted postings.
+
+### RSS Feeds Instead of Web Crawling
+The system intentionally avoids implementing a general-purpose web crawler.
+Handling robots.txt, crawl politeness, and legal considerations introduces significant complexity.
+Instead, Koudelka uses curated RSS feeds, which provide structured, ethical, and reliable access
+to fresh content.
+
+### BM25 Ranking
+BM25 was selected for ranking due to its transparency, effectiveness, and tunability.
+Unlike learned ranking models, BM25 allows clear reasoning about relevance and scoring behavior.
 
 Demo of the browser
 
