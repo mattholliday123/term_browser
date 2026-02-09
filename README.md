@@ -119,3 +119,4 @@ NOTES:
 I have explored creating a TUI browser using Textual to create the TUI and using Go to handle all of the backend logic. I have implemented bm25 ranking for results.
 Some limitations include ranking is not perfect, as I do not implement any advanced ranking algorithms beyond bm25. 
 Another limitation includes the lack of sources. I have to curate a list of rss feeds manually, therefore I only selected a small number of sites just to test with. 
+Source code for the browser is in other branch
