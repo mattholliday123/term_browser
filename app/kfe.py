@@ -1,12 +1,13 @@
 import re
+import time
 import requests 
 import json
 from bs4 import BeautifulSoup
 from textual.app import App, ComposeResult
 from textual.widgets import Static, Button, Input, Label, Tabs, Markdown, ContentSwitcher, Tab
 from textual.containers import Container, Horizontal,ScrollableContainer, VerticalScroll, Vertical
+from textual import work
 from textual import on
-
 from client import send_message
 
 class MyApp(App):
@@ -35,12 +36,16 @@ class MyApp(App):
         search_bar.can_focus = False
 
 
+    @work(thread=True)
+    def perform_search(self, query: str):
+        return json.loads(send_message(query).strip())
 
     #runs when use searches query
     @on(Input.Submitted)
-    def get_search(self):
+    async def get_search(self):
         input = self.query_one(Input)
         query = input.value
+        self.query_start_time = time.perf_counter()
         input.value = ""
         self.query_one("#main_switcher").current = "home_view"
         self.query_one("#tabs_bar").active = "home_view_tab" 
@@ -48,7 +53,10 @@ class MyApp(App):
         results_container.remove_children()
         results_container.mount(Label(f"search results for {query}"))
         try:
-            results = json.loads(send_message(query).strip())
+            worker = self.perform_search(query)
+            results = await worker.wait()
+            elapsed = time.perf_counter() - self.query_start_time
+            results_container.mount(Label(f"elapsed: {elapsed * 1000:.2f}ms"))
             for res in results:
                 button = Button(res['title'], classes="result_link")
                 button.data = {"url": res['link'], "title": res['title']}
