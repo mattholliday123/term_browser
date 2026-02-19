@@ -8,13 +8,15 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mmcdole/gofeed"
 )
 
-var WEBSITE_LIST = [6]string{"https://en.wikipedia.org/w/index.php?title=Special:NewPages&feed=rss",
-"https://en.wikipedia.org/w/api.php?hidebots=1&hidecategorization=1&hideWikibase=1&urlversion=1&days=1&limit=50&action=feedrecentchanges&feedformat=rss", "https://www.theguardian.com/us/rss","https://www.espn.com/espn/rss/news", "https://feeds.bbci.co.uk/news/rss.xml", "http://rss.cnn.com/rss/cnn_topstories.rss"}
+var WEBSITE_LIST = [37]string{"https://en.wikipedia.org/w/index.php?title=Special:NewPages&feed=rss",
+"https://en.wikipedia.org/w/api.php?hidebots=1&hidecategorization=1&hideWikibase=1&urlversion=1&days=1&limit=50&action=feedrecentchanges&feedformat=rss", "https://www.theguardian.com/us/rss", "https://feeds.bbci.co.uk/news/rss.xml", "http://rss.cnn.com/rss/cnn_topstories.rss", "https://www.theverge.com/rss/index.xml","https://www.polygon.com/feed/","https://www.vox.com/rss/index.xml","https://www.wired.com/feed/category/business/latest/rss","https://www.wired.com/feed/tag/ai/latest/rss","https://www.wired.com/feed/category/culture/latest/rss", "https://www.wired.com/feed/category/science/latest/rss", "https://rss.nytimes.com/services/xml/rss/nyt/US.xml","https://mashable.com/feeds/rss/all","https://feeds.nbcnews.com/nbcnews/public/news","https://abcnews.com/abcnews/topstories","https://www.cbsnews.com/latest/rss/main", "https://feeds.bbci.co.uk/news/politics/rss.xml","https://feeds.bbci.co.uk/news/health/rss.xml","https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml","https://feeds.bbci.co.uk/news/technology/rss.xml","https://www.cbssports.com/rss/headlines/boxing/","https://www.cbssports.com/rss/headlines/college-basketball/","https://www.cbssports.com/rss/headlines/college-football/","https://www.cbssports.com/rss/headlines/","https://www.cbssports.com/rss/headlines/golf/","https://www.cbssports.com/rss/headlines/mlb/","https://www.cbssports.com/rss/headlines/mma/","https://www.cbssports.com/rss/headlines/nba/","https://www.cbssports.com/rss/headlines/nfl/","https://www.cbssports.com/rss/headlines/nhl/","https://www.cbssports.com/rss/headlines/soccer/","https://www.cbssports.com/rss/headlines/tennis/","https://www.cbssports.com/rss/headlines/wwe/","https://www.cbssports.com/rss/headlines/betting/"}
 
 
 //term struct for our Dictionary
@@ -110,28 +112,60 @@ func buildIndex(db *sql.DB) {
     log.Println("Successfully built index in 'postings' table!")
 }
 //fetches from rss feeds and stores in db
-func fetcher(db *sql.DB){
-	fp := gofeed.NewParser()
-	var feed *gofeed.Feed
+func fetcher(db *sql.DB) {
+    start := time.Now()
 
-	for _,web := range WEBSITE_LIST{
-		var err error
-		feed, err = fp.ParseURL(web)
-		if err != nil {
-			log.Fatal(err)
-	}
-		fmt.Printf("Feed Title: %s\n", feed.Title)
-			for _, item := range feed.Items{
-		_, err := db.Exec("INSERT OR IGNORE INTO docs(title, body, url) VALUES(?, ?, ?)", item.Title, item.Description, item.Link)
-		if err != nil {
-			fmt.Println("error inserting into table")
-			log.Fatal(err)
-		}
+    fp := gofeed.NewParser()
 
-		fmt.Printf("Inserted Article %s\nLink: %s\n", item.Title, item.Link)
-	}
+    const workerCount = 5
+    jobs := make(chan string, len(WEBSITE_LIST))
+    var wg sync.WaitGroup
+
+    // Worker function
+    worker := func() {
+        defer wg.Done()
+        for url := range jobs {
+            feed, err := fp.ParseURL(url)
+            if err != nil {
+                log.Printf("Error parsing %s: %v\n", url, err)
+                continue
+            }
+
+            for _, item := range feed.Items {
+                _, err := db.Exec(
+                    "INSERT OR IGNORE INTO docs(title, body, url) VALUES(?, ?, ?)",
+                    item.Title,
+                    item.Description,
+                    item.Link,
+                )
+                if err != nil {
+                    log.Printf("Insert error: %v\n", err)
+                    continue
+                }
+            }
+
+            log.Printf("Finished feed: %s\n", feed.Title)
+        }
+    }
+
+    // Start workers
+    for i := 0; i < workerCount; i++ {
+        wg.Add(1)
+        go worker()
+    }
+
+    // Send jobs
+    for _, url := range WEBSITE_LIST {
+        jobs <- url
+    }
+    close(jobs)
+
+    wg.Wait()
+
+    elapsed := time.Since(start)
+    log.Printf("Ingestion completed in %s\n", elapsed)
 }
-}
+
 
 func loadDictionary(db *sql.DB) Dictionary {
     dict := make(Dictionary)
@@ -268,8 +302,8 @@ func main() {
 			log.Fatal(err)
 	}
 	defer db.Close()
-	dict := loadDictionary(db)
 	fetcher(db)
 	buildIndex(db)
+	dict := loadDictionary(db)
 	listen(db, dict)
 }
